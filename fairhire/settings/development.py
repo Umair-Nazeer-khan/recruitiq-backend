@@ -9,7 +9,7 @@ import dj_database_url
 
 DEBUG = config('DEBUG', default=False, cast=bool)
 
-ALLOWED_HOSTS = ['*']   # allow all in development
+ALLOWED_HOSTS = ['recruitiq-backend-production-4b25.up.railway.app', 'localhost', '127.0.0.1']
 
 DATABASE_URL = config('DATABASE_URL', default='', cast=str)
 if DATABASE_URL:
