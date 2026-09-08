@@ -12,6 +12,17 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 SECRET_KEY = config('SECRET_KEY', default='django-insecure-change-this-in-production')
 
+ALLOWED_HOSTS = [
+    host.strip()
+    for host in config(
+        'ALLOWED_HOSTS',
+        default='localhost,127.0.0.1',
+    ).split(',')
+    if host.strip()
+]
+if 'recruitiq-backend-production-d702.up.railway.app' not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append('recruitiq-backend-production-d702.up.railway.app')
+
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
