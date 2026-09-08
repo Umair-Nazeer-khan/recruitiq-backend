@@ -10,12 +10,7 @@ import dj_database_url
 DEBUG = config('DEBUG', default=False, cast=bool)
 
 ALLOWED_HOSTS = [
-    'recruitiq-backend-production-367d.up.railway.app',
-    'recruitiq-backend-production-367d.up.railway.app',
-    'recruitiq-backend-production-1bcf.up.railway.app',
-    'recruitiq-backend-production-4b25.up.railway.app',
-    'localhost',
-    '127.0.0.1',
+    '*',
 ]
 
 DATABASE_URL = config('DATABASE_URL', default='', cast=str)
