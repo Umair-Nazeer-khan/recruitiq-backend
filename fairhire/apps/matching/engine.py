@@ -1,4 +1,3 @@
-# fairhire/apps/matching/engine.py
 # ─────────────────────────────────────────────────────────────────
 #  Fair Hire AI — Matching Engine
 #
@@ -13,6 +12,7 @@
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
+import re
 
 
 # Education level ranking
@@ -38,10 +38,44 @@ EDU_RANK = {
 
 
 def get_edu_rank(level: str) -> int:
-    """Convert education level string to numeric rank."""
+    """
+    Convert education level string to numeric rank.
+    Handles combined labels like 'MSc / MS' or 'BSc / BE' by splitting
+    on common separators and taking the highest rank found among the
+    parts — a plain exact-match lookup was silently failing for any
+    label that wasn't a pre-listed exact string (e.g. 'msc / ms' was
+    never in the dict, only 'msc' and 'ms' separately), which made the
+    requirement act as if it were unset.
+    """
     if not level:
         return 0
-    return EDU_RANK.get(level.lower().strip(), 0)
+    level = level.lower().strip()
+
+    if level in EDU_RANK:
+        return EDU_RANK[level]
+
+    best = 0
+    for part in re.split(r'[/,&]', level):
+        part = part.strip()
+        if part in EDU_RANK:
+            best = max(best, EDU_RANK[part])
+    return best
+
+
+def _normalize_skill(s: str) -> str:
+    """
+    Normalize a skill string for comparison so trivial differences like
+    'REST APIs' vs 'rest api' don't cause a false 'missing skill' —
+    lowercase, strip punctuation, collapse whitespace, and drop a
+    trailing 's' for simple pluralization (but not for short words like
+    'js' or 'css', where the 's' is part of the name itself).
+    """
+    s = s.lower().strip()
+    s = re.sub(r'[^a-z0-9\s]', ' ', s)
+    s = re.sub(r'\s+', ' ', s).strip()
+    if len(s) > 3 and s.endswith('s') and not s.endswith('ss'):
+        s = s[:-1]
+    return s
 
 
 def score_candidate(candidate, job) -> dict:
@@ -85,9 +119,16 @@ def score_candidate(candidate, job) -> dict:
     # ══════════════════════════════════════════════════════════
     #  1. SKILL SCORE
     # ══════════════════════════════════════════════════════════
-    matched_required = [s for s in required_skills if s in cand_skills]
-    matched_optional = [s for s in optional_skills if s in cand_skills]
-    missing_skills   = [s for s in required_skills if s not in cand_skills]
+    cand_skills_norm     = [_normalize_skill(s) for s in cand_skills]
+    required_skills_norm = [_normalize_skill(s) for s in required_skills]
+    optional_skills_norm = [_normalize_skill(s) for s in optional_skills]
+
+    matched_required = [orig for orig, norm in zip(required_skills, required_skills_norm)
+                        if norm in cand_skills_norm]
+    matched_optional = [orig for orig, norm in zip(optional_skills, optional_skills_norm)
+                        if norm in cand_skills_norm]
+    missing_skills   = [orig for orig, norm in zip(required_skills, required_skills_norm)
+                        if norm not in cand_skills_norm]
 
     if required_skills:
         # Required skills = 80% of skill score
