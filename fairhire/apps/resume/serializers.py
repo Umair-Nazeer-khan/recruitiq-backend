@@ -5,6 +5,8 @@ from .models import Candidate
 
 class CandidateSerializer(serializers.ModelSerializer):
     """Full candidate data — used for detail view."""
+    resume_file_url = serializers.SerializerMethodField()
+
     class Meta:
         model  = Candidate
         fields = [
@@ -14,7 +16,15 @@ class CandidateSerializer(serializers.ModelSerializer):
             'experience_score', 'education_score', 'missing_skills',
             'score_explanation', 'status', 'hr_notes',
             'original_name', 'created_at',
+            'resume_file_url',
         ]
+
+    def get_resume_file_url(self, obj):
+        request = self.context.get('request')
+        if obj.resume_file and hasattr(obj.resume_file, 'url'):
+            url = obj.resume_file.url
+            return request.build_absolute_uri(url) if request else url
+        return None
 
 
 class CandidateListSerializer(serializers.ModelSerializer):

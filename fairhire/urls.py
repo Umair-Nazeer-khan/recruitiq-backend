@@ -27,7 +27,8 @@ urlpatterns = [
     path('api/v1/matching/', include('fairhire.apps.matching.urls')),
 ]
 
-# Serve media files in development
+# Serve media files (uploaded resumes) — needed in production too since
+# this project doesn't use a separate file host/CDN.
+urlpatterns += static(settings.MEDIA_URL,  document_root=settings.MEDIA_ROOT)
 if settings.DEBUG:
-    urlpatterns += static(settings.MEDIA_URL,  document_root=settings.MEDIA_ROOT)
     urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)

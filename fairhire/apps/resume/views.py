@@ -66,7 +66,9 @@ def upload_resume(request):
 
         return Response({
             'message':   'Resume parsed successfully.',
-            'candidate': CandidateSerializer(candidate).data,
+            'candidate': CandidateSerializer(
+                candidate, context={'request': request}
+            ).data,
         }, status=status.HTTP_201_CREATED)
 
     except Exception as e:
@@ -112,7 +114,9 @@ def candidate_detail(request, pk):
     """
     try:
         candidate = Candidate.objects.get(pk=pk, uploaded_by=request.user)
-        return Response(CandidateSerializer(candidate).data)
+        return Response(
+            CandidateSerializer(candidate, context={'request': request}).data
+        )
     except Candidate.DoesNotExist:
         return Response({'error': 'Candidate not found.'}, status=404)
 

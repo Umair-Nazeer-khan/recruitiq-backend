@@ -373,7 +373,13 @@ below and return ONLY a single valid JSON object (no markdown, no commentary)
 with exactly these fields:
 
 {{
-  "name": "full name of the candidate",
+    "name": "the candidate's actual personal name (first and last name) —
+                        NEVER a job title, professional headline, or role description.
+                        Resumes often show the name on one line and a job title like
+                        'Flutter Developer' or 'Mobile App Developer' directly below
+                        or beside it — do not confuse the two. If a line contains
+                        words like 'Developer', 'Engineer', 'Manager', 'Designer',
+                        'Consultant', it is a job title, not the name.",
   "email": "email address",
   "phone": "phone number",
   "location": "city, if mentioned",
@@ -400,6 +406,17 @@ Resume text:
 """
 
 
+def _looks_like_job_title(name: str) -> bool:
+    """Catch job titles returned as candidate names by the LLM."""
+    if not name:
+        return True
+    lower = name.lower()
+    job_words = ['developer', 'engineer', 'manager', 'designer', 'consultant',
+                 'analyst', 'specialist', 'lead', 'architect', 'intern',
+                 'officer', 'coordinator', 'administrator', 'director']
+    return any(word in lower for word in job_words)
+
+
 def _parse_with_gemini(text: str):
     if not GEMINI_API_KEY:
         return None
@@ -413,8 +430,12 @@ def _parse_with_gemini(text: str):
         )
         data = json.loads(response.text)
 
+        gemini_name = (data.get('name') or '').strip()
+        if _looks_like_job_title(gemini_name):
+            gemini_name = _extract_name(text)
+
         return {
-            'name':             data.get('name', ''),
+            'name':             gemini_name,
             'email':            data.get('email', ''),
             'phone':            data.get('phone', ''),
             'skills':           data.get('skills', []) or [],
