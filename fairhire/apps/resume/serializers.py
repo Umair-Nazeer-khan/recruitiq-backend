@@ -34,12 +34,52 @@ class UploadResumeSerializer(serializers.Serializer):
     def validate_file(self, value):
         allowed = ['.pdf', '.docx', '.doc', '.txt']
         import os
-        ext = os.path.splitext(value.name)[1].lower()
+
+        name = (value.name or '').strip().strip('"').strip("'")
+        ext = os.path.splitext(name)[1].lower()
+
         if ext not in allowed:
-            raise serializers.ValidationError(f'File type not supported. Use: {", ".join(allowed)}')
+            # Filename/extension can get lost or mangled by some mobile
+            # file-picker + multipart-upload combinations even though the
+            # file itself is a valid, supported type. Fall back to
+            # checking the actual file content ("magic bytes") before
+            # rejecting it outright.
+            detected_ext = self._detect_extension_from_content(value)
+            if detected_ext:
+                ext = detected_ext
+            else:
+                raise serializers.ValidationError(
+                    f'File type not supported. Use: {", ".join(allowed)}')
+
         if value.size > 10 * 1024 * 1024:
             raise serializers.ValidationError('File too large. Max size: 10 MB')
         return value
+
+    @staticmethod
+    def _detect_extension_from_content(value):
+        """Peek at the first bytes of the file to identify its real type,
+        regardless of what the filename/extension says."""
+        try:
+            value.seek(0)
+            header = value.read(8)
+            value.seek(0)
+        except Exception:
+            return None
+
+        if header.startswith(b'%PDF'):
+            return '.pdf'
+        if header.startswith(b'PK\x03\x04'):
+            # DOCX (and modern .doc saved as OOXML) are zip-based
+            return '.docx'
+        if header.startswith(b'\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1'):
+            # Legacy .doc (OLE compound file)
+            return '.doc'
+        # Plain text has no reliable signature — accept if it decodes as text
+        try:
+            header.decode('utf-8')
+            return '.txt'
+        except UnicodeDecodeError:
+            return None
 
 
 class UpdateStatusSerializer(serializers.Serializer):

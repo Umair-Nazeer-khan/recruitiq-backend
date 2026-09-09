@@ -76,6 +76,10 @@ SECTION_HEADERS = {
 def extract_text(file_path: str) -> str:
     path = Path(file_path)
     ext  = path.suffix.lower()
+
+    if ext not in ('.pdf', '.docx', '.doc', '.txt'):
+        ext = _detect_extension_from_content(file_path) or ext
+
     if ext == '.pdf':
         return _text_from_pdf(file_path)
     elif ext in ('.docx', '.doc'):
@@ -84,6 +88,29 @@ def extract_text(file_path: str) -> str:
         return path.read_text(encoding='utf-8', errors='ignore')
     else:
         raise ValueError(f'Unsupported file type: {ext}')
+
+
+def _detect_extension_from_content(file_path: str):
+    """Identify the real file type from its content when the filename's
+    extension is missing or doesn't match a supported type — mirrors the
+    same check used at upload validation time, for consistency."""
+    try:
+        with open(file_path, 'rb') as f:
+            header = f.read(8)
+    except Exception:
+        return None
+
+    if header.startswith(b'%PDF'):
+        return '.pdf'
+    if header.startswith(b'PK\x03\x04'):
+        return '.docx'
+    if header.startswith(b'\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1'):
+        return '.doc'
+    try:
+        header.decode('utf-8')
+        return '.txt'
+    except UnicodeDecodeError:
+        return None
 
 
 def _text_from_pdf(path: str) -> str:
