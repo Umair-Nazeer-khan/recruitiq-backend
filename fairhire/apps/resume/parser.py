@@ -266,9 +266,43 @@ def _extract_skills(skills_text_lower: str) -> list:
     return list(dict.fromkeys(found))
 
 
+_MONTHS = {
+    'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'may': 5, 'jun': 6,
+    'jul': 7, 'aug': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12,
+}
+
+# Matches an optional month name/abbreviation followed by a 4-digit year.
+_DATE_TOKEN = r'(?:(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+)?(20\d{2}|19\d{2})'
+
+_DATE_RANGE = re.compile(
+    _DATE_TOKEN + r'\s*(?:to|[-–—])\s*' +
+    r'(?:' + _DATE_TOKEN + r'|(present|current|now))',
+    re.IGNORECASE,
+)
+
+
+def _date_to_months(month_abbr, year_str) -> int:
+    """Convert a month/year pair into an absolute month count."""
+    month = _MONTHS.get((month_abbr or '').lower()[:3], 1)
+    return int(year_str) * 12 + month
+
+
+def _find_date_ranges(text_lower: str):
+    """Find date ranges with optional month precision."""
+    ranges = []
+    for match in _DATE_RANGE.finditer(text_lower):
+        start_month, start_year, end_month, end_year, end_word = match.groups()
+        if end_word:
+            ranges.append(((start_month, start_year), None))
+        elif end_year:
+            ranges.append(((start_month, start_year), (end_month, end_year)))
+    return ranges
+
+
 def _extract_experience_years(experience_text_lower: str) -> float:
     """Extract total years of experience — scoped to the experience
-    section only, so education date ranges are never included."""
+    section only, so education date ranges are never included. Uses
+    month-level precision for month-prefixed date ranges."""
     patterns = [
         r'(\d+\.?\d*)\+?\s*years?\s*(?:of\s+)?(?:work\s+)?experience',
         r'experience\s*:?\s*(\d+\.?\d*)\+?\s*years?',
@@ -279,18 +313,19 @@ def _extract_experience_years(experience_text_lower: str) -> float:
         if match:
             return float(match.group(1))
 
-    ranges = re.findall(r'(20\d{2}|19\d{2})\s*[-–—]\s*(20\d{2}|present|current|now)',
-                         experience_text_lower)
-    total = 0
-    current_year = datetime.datetime.now().year
+    ranges = _find_date_ranges(experience_text_lower)
+    if not ranges:
+        return 0.0
+
+    now = datetime.datetime.now()
+    current_months = now.year * 12 + now.month
+    total_months = 0
     for start, end in ranges:
-        try:
-            s = int(start)
-            e = current_year if end in ('present', 'current', 'now') else int(end)
-            total += max(0, e - s)
-        except ValueError:
-            pass
-    return float(min(total, 30))
+        start_months = _date_to_months(*start)
+        end_months = current_months if end is None else _date_to_months(*end)
+        total_months += max(0, end_months - start_months)
+
+    return float(min(round(total_months / 12, 1), 40))
 
 
 def _extract_education(full_text: str, education_section: str) -> str:
@@ -325,21 +360,33 @@ def _extract_education_level(text_lower: str) -> str:
 
 
 def _extract_work_history(experience_text: str) -> list:
-    """Extract {duration, details} — scoped to the experience section
-    only, so education entries never appear here."""
+    """Extract company, role, and duration entries from experience only."""
     jobs = []
-    lines = experience_text.split('\n')
+    lines = [line.strip() for line in experience_text.split('\n')]
     for i, line in enumerate(lines):
-        if re.search(r'(20\d{2}|19\d{2})', line):
-            duration = re.search(r'(20\d{2}|19\d{2})\s*[-–]\s*(20\d{2}|Present|present|Current)', line)
-            if duration:
-                context_lines = lines[max(0, i - 1):i + 2]
-                context = ' | '.join(l.strip() for l in context_lines if l.strip())
-                jobs.append({
-                    'duration': duration.group(0),
-                    'details':  context[:120],
-                })
-    return jobs[:5]
+        if not line:
+            continue
+        date_match = _DATE_RANGE.search(line.lower())
+        if not date_match:
+            continue
+
+        before_date = line[:date_match.start()].strip(' |-–—').strip()
+        role = before_date if before_date else 'Role not specified'
+        company = ''
+        for j in range(i - 1, max(-1, i - 3), -1):
+            candidate_line = lines[j] if j >= 0 else ''
+            if candidate_line and not _DATE_RANGE.search(candidate_line.lower()):
+                company = candidate_line
+                break
+
+        jobs.append({
+            'company': company or 'Company not specified',
+            'role': role,
+            'duration': date_match.group(0).title(),
+        })
+        if len(jobs) >= 8:
+            break
+    return jobs
 
 
 def _extract_location(text: str) -> str:
