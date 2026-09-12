@@ -43,6 +43,8 @@ class Candidate(models.Model):
     education_level   = models.CharField(max_length=50, blank=True)  # e.g. "BSc", "MSc"
     experience_years  = models.FloatField(default=0)
     skills            = models.JSONField(default=list)       # ["Python", "Flutter", ...]
+    languages         = models.JSONField(default=list)       # ["English", "Urdu", ...]
+    projects          = models.JSONField(default=list)       # [{name, description}, ...]
     work_history      = models.JSONField(default=list)       # [{company, role, duration}, ...]
     raw_text          = models.TextField(blank=True)         # full resume text
 

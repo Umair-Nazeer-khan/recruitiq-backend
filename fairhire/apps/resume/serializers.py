@@ -12,7 +12,8 @@ class CandidateSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'name', 'email', 'phone', 'location',
             'education', 'education_level', 'experience_years',
-            'skills', 'work_history', 'match_score', 'skill_score',
+            'skills', 'languages', 'projects', 'work_history',
+            'match_score', 'skill_score',
             'experience_score', 'education_score', 'missing_skills',
             'score_explanation', 'status', 'hr_notes',
             'original_name', 'created_at',

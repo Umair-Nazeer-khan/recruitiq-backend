@@ -63,8 +63,10 @@ SECTION_HEADERS = {
                    'work history'],
     'education':  ['education', 'academic background', 'academic qualifications',
                     'qualification'],
-    'skills':     ['technical skills', 'skills', 'core competencies', 'competencies'],
-    'projects':   ['key projects', 'projects'],
+    'skills':     ['technical skills', 'skills', 'core competencies', 'competencies',
+                    'key skills', 'soft skills'],
+    'projects':   ['key projects', 'projects', 'personal projects', 'academic projects'],
+    'languages':  ['languages', 'language proficiency', 'language skills'],
     'summary':    ['professional summary', 'summary', 'objective'],
 }
 
@@ -194,11 +196,16 @@ def parse_resume_rule_based(text: str) -> dict:
     skills_text     = (sections['skills'] or text).lower()
     education_text  = sections['education'] or ''
 
+    languages_text  = sections['languages'] or ''
+    projects_text   = sections['projects'] or ''
+
     return {
         'name':             _extract_name(text),
         'email':            _extract_email(text),
         'phone':            _extract_phone(text),
         'skills':           _extract_skills(skills_text),
+        'languages':        _extract_languages(languages_text),
+        'projects':         _extract_projects(projects_text),
         'experience_years': _extract_experience_years(experience_text.lower()),
         'education':        _extract_education(text, education_text),
         'education_level':  _extract_education_level(text_lower),
@@ -359,6 +366,31 @@ def _extract_education_level(text_lower: str) -> str:
     return best_level
 
 
+def _extract_languages(languages_text: str) -> list:
+    """Extract a clean list of languages, e.g. ['English', 'Urdu (Native)']."""
+    if not languages_text:
+        return []
+    parts = re.split(r'[|,•\n]', languages_text)
+    return [p.strip() for p in parts if p.strip() and len(p.strip()) < 40]
+
+
+def _extract_projects(projects_text: str) -> list:
+    """Extract project entries as {name, description}."""
+    if not projects_text:
+        return []
+    projects = []
+    lines = [l.strip() for l in projects_text.split('\n') if l.strip()]
+    for line in lines:
+        m = re.match(r'^(.{3,60}?)\s*[—\-:]\s*(.+)$', line)
+        if m:
+            projects.append({'name': m.group(1).strip(), 'description': m.group(2).strip()})
+        else:
+            projects.append({'name': line[:60], 'description': ''})
+        if len(projects) >= 10:
+            break
+    return projects
+
+
 def _extract_work_history(experience_text: str) -> list:
     """Extract company, role, and duration entries from experience only."""
     jobs = []
@@ -486,6 +518,8 @@ def _parse_with_gemini(text: str):
             'email':            data.get('email', ''),
             'phone':            data.get('phone', ''),
             'skills':           data.get('skills', []) or [],
+            'languages':        data.get('languages', []) or [],
+            'projects':         data.get('projects', []) or [],
             'experience_years': float(data.get('experience_years', 0) or 0),
             'education':        data.get('education', ''),
             'education_level':  data.get('education_level', ''),
