@@ -59,7 +59,7 @@ class UploadResumeSerializer(serializers.Serializer):
                 ext = detected_ext
             else:
                 raise serializers.ValidationError(
-                    f'File type not supported. Use: {", ".join(allowed)}')
+                    f'[v2-content-check] File type not supported. Use: {", ".join(allowed)}')
 
         if value.size > 10 * 1024 * 1024:
             raise serializers.ValidationError('File too large. Max size: 10 MB')
