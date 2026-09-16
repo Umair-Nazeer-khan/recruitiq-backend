@@ -15,6 +15,32 @@ import numpy as np
 import re
 
 
+SKILL_ALIASES = {
+    'rest apis': 'rest api',
+    'rest api': 'rest api',
+    'apis': 'api',
+    'api': 'api',
+    'nodejs': 'node.js',
+    'node js': 'node.js',
+    'node': 'node.js',
+    'reactjs': 'react',
+    'react js': 'react',
+    'flutter dart': 'flutter',
+    'django rest framework': 'django',
+    'machine-learning': 'machine learning',
+    'ml': 'machine learning',
+    'deep-learning': 'deep learning',
+    'bscs': 'bsc',
+    'bs cs': 'bsc',
+    'bs': 'bsc',
+    'mscs': 'msc',
+    'master': 'masters',
+    'masters degree': 'masters',
+    'bachelor degree': 'bachelor',
+    'software engineer': 'software engineering',
+}
+
+
 # Education level ranking
 EDU_RANK = {
     'phd':          5,
@@ -38,160 +64,152 @@ EDU_RANK = {
 
 
 def get_edu_rank(level: str) -> int:
-    """
-    Convert education level string to numeric rank.
-    Handles combined labels like 'MSc / MS' or 'BSc / BE' by splitting
-    on common separators and taking the highest rank found among the
-    parts — a plain exact-match lookup was silently failing for any
-    label that wasn't a pre-listed exact string (e.g. 'msc / ms' was
-    never in the dict, only 'msc' and 'ms' separately), which made the
-    requirement act as if it were unset.
-    """
+    """Normalize degree strings and return a numeric rank."""
     if not level:
         return 0
+
     level = level.lower().strip()
+    level = level.replace('degree', '').replace('education', '').strip()
+    level = re.sub(r'\s+', ' ', level)
+
+    for alias, canonical in {
+        'bscs': 'bsc', 'bs cs': 'bsc', 'bsc / be': 'bsc', 'be / bsc': 'bsc',
+        'bachelor of science': 'bsc', 'bachelor of engineering': 'be',
+        'msc / ms': 'msc', 'm.s': 'msc', 'm s': 'msc',
+        'masters': 'masters', 'master': 'masters',
+        'phd / doctorate': 'phd', 'doctorate': 'phd',
+        'intermediate / fsc': 'intermediate', 'fsc / intermediate': 'intermediate'
+    }.items():
+        if alias in level:
+            level = canonical
+            break
 
     if level in EDU_RANK:
         return EDU_RANK[level]
 
     best = 0
     for part in re.split(r'[/,&]', level):
-        part = part.strip()
+        part = part.strip().replace(' ', '')
         if part in EDU_RANK:
             best = max(best, EDU_RANK[part])
+        elif part in {'bs', 'bscs'}:
+            best = max(best, EDU_RANK['bsc'])
+        elif part in {'ms', 'msc', 'mscs'}:
+            best = max(best, EDU_RANK['msc'])
     return best
 
 
 def _normalize_skill(s: str) -> str:
-    """
-    Normalize a skill string for comparison so trivial differences like
-    'REST APIs' vs 'rest api' don't cause a false 'missing skill' —
-    lowercase, strip punctuation, collapse whitespace, and drop a
-    trailing 's' for simple pluralization (but not for short words like
-    'js' or 'css', where the 's' is part of the name itself).
-    """
-    s = s.lower().strip()
+    """Normalize skill names across common CV spelling variations."""
+    s = (s or '').lower().strip()
+    s = s.replace('&', ' and ')
     s = re.sub(r'[^a-z0-9\s]', ' ', s)
     s = re.sub(r'\s+', ' ', s).strip()
+
+    s = SKILL_ALIASES.get(s, s)
+
     if len(s) > 3 and s.endswith('s') and not s.endswith('ss'):
         s = s[:-1]
+
+    if s in {'reactjs', 'react js'}:
+        s = 'react'
+    if s in {'node js', 'nodejs'}:
+        s = 'node.js'
     return s
 
 
 def score_candidate(candidate, job) -> dict:
-    """
-    Score a single candidate against a job.
-
-    Args:
-        candidate : Candidate model instance
-        job       : Job model instance (or dict with same fields)
-
-    Returns:
-        dict with skill_score, experience_score, education_score,
-             final_score, missing_skills, explanation
-    """
-    # ── Get job data ───────────────────────────────────────────
+    """Score a candidate against a job while keeping scores realistic."""
     if isinstance(job, dict):
-        required_skills   = [s.lower() for s in job.get('required_skills', [])]
-        optional_skills   = [s.lower() for s in job.get('optional_skills', [])]
-        min_experience    = job.get('min_experience', 0)
-        required_edu      = job.get('education_level', '')
-        skill_weight      = job.get('skill_weight', 0.5)
-        experience_weight = job.get('experience_weight', 0.3)
-        education_weight  = job.get('education_weight', 0.2)
-        job_description   = ' '.join(required_skills + optional_skills)
+        required_skills = [str(s).strip() for s in job.get('required_skills', [])]
+        optional_skills = [str(s).strip() for s in job.get('optional_skills', [])]
+        min_experience = max(0, float(job.get('min_experience', 0) or 0))
+        required_edu = str(job.get('education_level', '') or '')
+        skill_weight = float(job.get('skill_weight', 0.5) or 0.5)
+        experience_weight = float(job.get('experience_weight', 0.3) or 0.3)
+        education_weight = float(job.get('education_weight', 0.2) or 0.2)
+        job_description = ' '.join(required_skills + optional_skills)
     else:
-        required_skills   = [s.lower() for s in (job.required_skills or [])]
-        optional_skills   = [s.lower() for s in (job.optional_skills or [])]
-        min_experience    = job.min_experience or 0
-        required_edu      = job.education_level or ''
-        skill_weight      = job.skill_weight or 0.5
-        experience_weight = job.experience_weight or 0.3
-        education_weight  = job.education_weight or 0.2
-        job_description   = ' '.join(required_skills + optional_skills)
+        required_skills = [str(s).strip() for s in (job.required_skills or [])]
+        optional_skills = [str(s).strip() for s in (job.optional_skills or [])]
+        min_experience = max(0, float(job.min_experience or 0))
+        required_edu = str(job.education_level or '')
+        skill_weight = float(job.skill_weight or 0.5)
+        experience_weight = float(job.experience_weight or 0.3)
+        education_weight = float(job.education_weight or 0.2)
+        job_description = ' '.join(required_skills + optional_skills)
 
-    # ── Get candidate data ─────────────────────────────────────
-    cand_skills      = [s.lower() for s in (candidate.skills or [])]
-    cand_exp_years   = candidate.experience_years or 0
-    cand_edu_level   = candidate.education_level or ''
-    cand_raw_text    = candidate.raw_text or ''
+    weights = [max(0.0, min(1.0, skill_weight)),
+               max(0.0, min(1.0, experience_weight)),
+               max(0.0, min(1.0, education_weight))]
+    total_weight = sum(weights)
+    if total_weight <= 0:
+        weights = [0.5, 0.3, 0.2]
+    else:
+        weights = [w / total_weight for w in weights]
 
-    # ══════════════════════════════════════════════════════════
-    #  1. SKILL SCORE
-    # ══════════════════════════════════════════════════════════
-    cand_skills_norm     = [_normalize_skill(s) for s in cand_skills]
+    skill_weight, experience_weight, education_weight = weights
+
+    cand_skills = [str(s).strip() for s in (candidate.skills or [])]
+    cand_exp_years = max(0.0, float(candidate.experience_years or 0))
+    cand_edu_level = str(candidate.education_level or '')
+    cand_raw_text = candidate.raw_text or ''
+
+    cand_skills_norm = [_normalize_skill(s) for s in cand_skills]
     required_skills_norm = [_normalize_skill(s) for s in required_skills]
     optional_skills_norm = [_normalize_skill(s) for s in optional_skills]
 
-    matched_required = [orig for orig, norm in zip(required_skills, required_skills_norm)
-                        if norm in cand_skills_norm]
-    matched_optional = [orig for orig, norm in zip(optional_skills, optional_skills_norm)
-                        if norm in cand_skills_norm]
-    missing_skills   = [orig for orig, norm in zip(required_skills, required_skills_norm)
-                        if norm not in cand_skills_norm]
+    matched_required = [orig for orig, norm in zip(required_skills, required_skills_norm) if norm in cand_skills_norm]
+    matched_optional = [orig for orig, norm in zip(optional_skills, optional_skills_norm) if norm in cand_skills_norm]
+    missing_skills = [orig for orig, norm in zip(required_skills, required_skills_norm) if norm not in cand_skills_norm]
 
     if required_skills:
-        # Required skills = 80% of skill score
-        # Optional skills = 20% of skill score
-        req_score  = len(matched_required) / len(required_skills) * 80
-        opt_score  = (len(matched_optional) / len(optional_skills) * 20) if optional_skills else 20
+        req_score = len(matched_required) / len(required_skills) * 80
+        opt_score = (len(matched_optional) / len(optional_skills) * 20) if optional_skills else 0
         skill_base = req_score + opt_score
     else:
         skill_base = 100.0
 
-    # Boost with TF-IDF cosine similarity if we have resume text
     tfidf_score = 0.0
     if cand_raw_text and job_description:
         try:
             vectorizer = TfidfVectorizer(stop_words='english')
             tfidf_matrix = vectorizer.fit_transform([job_description, cand_raw_text])
-            similarity   = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:2])[0][0]
-            tfidf_score  = float(similarity) * 100
+            similarity = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:2])[0][0]
+            tfidf_score = float(similarity) * 100
         except Exception:
             tfidf_score = 0.0
 
-    # Combine: 70% keyword match + 30% TF-IDF similarity
     skill_score = (skill_base * 0.7) + (tfidf_score * 0.3)
-    skill_score = min(100.0, round(skill_score, 1))
+    skill_score = max(0.0, min(100.0, round(skill_score, 1)))
 
-    # ══════════════════════════════════════════════════════════
-    #  2. EXPERIENCE SCORE
-    # ══════════════════════════════════════════════════════════
     if min_experience == 0:
         experience_score = 100.0
     elif cand_exp_years >= min_experience:
-        # Give bonus for extra experience (max 100)
         experience_score = min(100.0, 100 + (cand_exp_years - min_experience) * 5)
     else:
-        # Partial score for less experience
-        experience_score = round((cand_exp_years / min_experience) * 100, 1)
+        experience_score = min(100.0, round((cand_exp_years / max(min_experience, 0.1)) * 100, 1))
 
     experience_score = round(experience_score, 1)
 
-    # ══════════════════════════════════════════════════════════
-    #  3. EDUCATION SCORE
-    # ══════════════════════════════════════════════════════════
     required_rank = get_edu_rank(required_edu)
-    cand_rank     = get_edu_rank(cand_edu_level)
+    cand_rank = get_edu_rank(cand_edu_level)
 
     if required_rank == 0:
         education_score = 100.0
     elif cand_rank >= required_rank:
-        education_score = 100.0  # meets or exceeds requirement
+        education_score = 100.0
     elif cand_rank == 0:
-        education_score = 50.0   # unknown education level
+        education_score = 50.0
     else:
-        education_score = round((cand_rank / required_rank) * 100, 1)
+        education_score = round(max(0.0, (cand_rank / required_rank) * 100), 1)
 
-    # ══════════════════════════════════════════════════════════
-    #  4. FINAL WEIGHTED SCORE
-    # ══════════════════════════════════════════════════════════
     final_score = (
-        skill_score      * skill_weight +
+        skill_score * skill_weight +
         experience_score * experience_weight +
-        education_score  * education_weight
+        education_score * education_weight
     )
-    final_score = round(final_score, 1)
+    final_score = max(0.0, min(100.0, round(final_score, 1)))
 
     # ══════════════════════════════════════════════════════════
     #  5. TRANSPARENCY EXPLANATION
