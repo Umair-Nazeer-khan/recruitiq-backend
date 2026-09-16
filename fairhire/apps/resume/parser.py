@@ -192,7 +192,11 @@ def parse_resume_rule_based(text: str) -> dict:
     text_lower = text.lower()
     sections = _split_sections(text)
 
-    experience_text = sections['experience'] or text
+    summary_text = sections['summary'] or ''
+    experience_text = (sections['experience'] or '') + '\n' + summary_text
+    if not experience_text.strip():
+        experience_text = text
+
     skills_text     = (sections['skills'] or text).lower()
     education_text  = sections['education'] or ''
 
@@ -234,13 +238,33 @@ def _extract_phone(text: str) -> str:
 
 
 def _extract_name(text: str) -> str:
+    text_lines = [ln.strip() for ln in text.split('\n') if ln.strip()]
+    candidate_lines = []
+
+    for line in text_lines[:15]:
+        if '@' in line or 'http' in line.lower() or any(ch.isdigit() for ch in line):
+            continue
+        if any(token in line.lower() for token in ['skills', 'experience', 'education', 'summary', 'profile']):
+            continue
+        if len(line) < 2 or len(line) > 60:
+            continue
+        if not re.fullmatch(r"[A-Za-z][A-Za-z\s.&'-]*", line):
+            continue
+        if any(word in line.lower() for word in ['developer', 'engineer', 'manager', 'designer', 'analyst', 'intern', 'consultant', 'specialist', 'lead', 'architect']):
+            continue
+        candidate_lines.append(line)
+
+    if candidate_lines:
+        return candidate_lines[0]
+
     doc = nlp(text[:500])
     for ent in doc.ents:
         if ent.label_ == 'PERSON':
             name = ent.text.strip()
-            if 2 < len(name) < 50:
+            if 2 < len(name) < 50 and not any(word in name.lower() for word in ['developer', 'engineer', 'manager', 'designer']):
                 return name
-    for line in text.split('\n')[:5]:
+
+    for line in text_lines[:10]:
         line = line.strip()
         if line and 2 < len(line) < 50 and not any(c in line for c in ['@', ':', '/']):
             if re.match(r'^[A-Za-z\s]+$', line):
@@ -307,9 +331,7 @@ def _find_date_ranges(text_lower: str):
 
 
 def _extract_experience_years(experience_text_lower: str) -> float:
-    """Extract total years of experience — scoped to the experience
-    section only, so education date ranges are never included. Uses
-    month-level precision for month-prefixed date ranges."""
+    """Prefer the explicit summary/experience statement; otherwise derive from date ranges."""
     patterns = [
         r'(\d+\.?\d*)\+?\s*years?\s*(?:of\s+)?(?:work\s+)?experience',
         r'experience\s*:?\s*(\d+\.?\d*)\+?\s*years?',
@@ -394,22 +416,43 @@ def _extract_projects(projects_text: str) -> list:
 def _extract_work_history(experience_text: str) -> list:
     """Extract company, role, and duration entries from experience only."""
     jobs = []
-    lines = [line.strip() for line in experience_text.split('\n')]
+    lines = [line.strip() for line in experience_text.split('\n') if line.strip()]
     for i, line in enumerate(lines):
-        if not line:
-            continue
         date_match = _DATE_RANGE.search(line.lower())
         if not date_match:
             continue
 
         before_date = line[:date_match.start()].strip(' |-–—').strip()
-        role = before_date if before_date else 'Role not specified'
         company = ''
-        for j in range(i - 1, max(-1, i - 3), -1):
-            candidate_line = lines[j] if j >= 0 else ''
-            if candidate_line and not _DATE_RANGE.search(candidate_line.lower()):
-                company = candidate_line
+        role = 'Role not specified'
+
+        prev_role = ''
+        for j in range(i - 1, max(-1, i - 5), -1):
+            prev = lines[j].strip()
+            if prev and not _DATE_RANGE.search(prev.lower()):
+                prev_role = prev
                 break
+
+        if '|' in before_date:
+            parts = [p.strip() for p in before_date.split('|') if p.strip()]
+            company = parts[0] if parts else 'Company not specified'
+            if prev_role:
+                role = prev_role
+        elif before_date:
+            role = before_date
+            for j in range(i - 1, max(-1, i - 5), -1):
+                candidate_line = lines[j] if j >= 0 else ''
+                if candidate_line and not _DATE_RANGE.search(candidate_line.lower()):
+                    company = candidate_line
+                    break
+        else:
+            if prev_role:
+                role = prev_role
+            for j in range(i - 2, max(-1, i - 6), -1):
+                candidate_line = lines[j] if j >= 0 else ''
+                if candidate_line and not _DATE_RANGE.search(candidate_line.lower()) and candidate_line.lower() != role.lower():
+                    company = candidate_line
+                    break
 
         jobs.append({
             'company': company or 'Company not specified',

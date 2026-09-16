@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from django.test import SimpleTestCase
 
 from fairhire.apps.matching.engine import score_candidate
+from fairhire.apps.resume.parser import parse_resume_rule_based
 
 
 class ScoreCandidateTests(SimpleTestCase):
@@ -66,3 +67,35 @@ class ScoreCandidateTests(SimpleTestCase):
         self.assertIn('rest api', result['matched_skills'])
         self.assertGreaterEqual(result['final_score'], 0)
         self.assertLessEqual(result['final_score'], 100)
+
+    def test_real_cv_structure_is_parsed_more_cleanly(self):
+        text = '''
+MUHAMMAD ALI
+Email: ali@gmail.com | Phone: +92 300 1234567
+Lahore, Pakistan
+
+PROFESSIONAL SUMMARY
+Python and Django developer with 3 years experience in web applications.
+
+SKILLS
+Python, Django, REST API, React, SQL, Docker, Git
+
+EDUCATION
+BSCS, University of Lahore, 2018 - 2022
+
+EXPERIENCE
+Software Engineer
+ABC Tech | Lahore | 2022 - Present
+- Built APIs with Django and REST framework
+- Worked with React JS and SQL databases
+'''
+
+        parsed = parse_resume_rule_based(text)
+
+        self.assertEqual(parsed['name'], 'MUHAMMAD ALI')
+        self.assertIn('python', [s.lower() for s in parsed['skills']])
+        self.assertIn('django', [s.lower() for s in parsed['skills']])
+        self.assertIn('bsc', parsed['education_level'].lower())
+        self.assertEqual(parsed['experience_years'], 3.0)
+        self.assertEqual(parsed['work_history'][0]['company'], 'ABC Tech')
+        self.assertEqual(parsed['work_history'][0]['role'], 'Software Engineer')
