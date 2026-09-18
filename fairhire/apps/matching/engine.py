@@ -118,6 +118,18 @@ def _normalize_skill(s: str) -> str:
     return s
 
 
+def _normalize_weights(skill_weight, experience_weight, education_weight):
+    weights = [
+        max(0.0, min(1.0, float(skill_weight))),
+        max(0.0, min(1.0, float(experience_weight))),
+        max(0.0, min(1.0, float(education_weight))),
+    ]
+    total_weight = sum(weights)
+    if total_weight <= 0:
+        return 0.5, 0.3, 0.2
+    return tuple(weight / total_weight for weight in weights)
+
+
 def score_candidate(candidate, job) -> dict:
     """Score a candidate against a job while keeping scores realistic."""
     if isinstance(job, dict):
@@ -139,16 +151,9 @@ def score_candidate(candidate, job) -> dict:
         education_weight = float(job.education_weight or 0.2)
         job_description = ' '.join(required_skills + optional_skills)
 
-    weights = [max(0.0, min(1.0, skill_weight)),
-               max(0.0, min(1.0, experience_weight)),
-               max(0.0, min(1.0, education_weight))]
-    total_weight = sum(weights)
-    if total_weight <= 0:
-        weights = [0.5, 0.3, 0.2]
-    else:
-        weights = [w / total_weight for w in weights]
-
-    skill_weight, experience_weight, education_weight = weights
+    skill_weight, experience_weight, education_weight = _normalize_weights(
+        skill_weight, experience_weight, education_weight
+    )
 
     cand_skills = [str(s).strip() for s in (candidate.skills or [])]
     cand_exp_years = max(0.0, float(candidate.experience_years or 0))

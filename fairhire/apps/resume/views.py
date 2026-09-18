@@ -8,6 +8,9 @@ from rest_framework.decorators import api_view, permission_classes, parser_class
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.response import Response
+from django.http import FileResponse, Http404
+from rest_framework_simplejwt.authentication import JWTAuthentication
+from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 
 from .models import Candidate
 from .serializers import (
@@ -50,6 +53,11 @@ def upload_resume(request):
     try:
         file_path = candidate.resume_file.path
         raw_text  = extract_text(file_path)
+        if not raw_text or len(raw_text.strip()) < 20:
+            raise ValueError(
+                'Could not read any text from this file. It may be corrupted, empty, '
+                'or a scanned image without selectable text.'
+            )
         parsed    = parse_resume(raw_text)
 
         candidate.name             = parsed.get('name', '')
@@ -176,3 +184,44 @@ def dashboard_stats(request):
         'pending':     qs.filter(status='pending').count(),
         'on_hold':     qs.filter(status='on_hold').count(),
     })
+
+
+@api_view(['GET'])
+@permission_classes([])
+def download_resume(request, pk):
+    user = _authenticate_via_header_or_query(request)
+    if user is None:
+        return Response({'detail': 'Authentication required.'}, status=401)
+
+    try:
+        candidate = Candidate.objects.get(pk=pk, uploaded_by=user)
+    except Candidate.DoesNotExist:
+        raise Http404('Resume not found.')
+
+    if not candidate.resume_file:
+        raise Http404('No file attached to this candidate.')
+
+    return FileResponse(
+        candidate.resume_file.open('rb'),
+        as_attachment=True,
+        filename=candidate.original_name or 'resume',
+    )
+
+
+def _authenticate_via_header_or_query(request):
+    jwt_auth = JWTAuthentication()
+    try:
+        result = jwt_auth.authenticate(request)
+        if result is not None:
+            return result[0]
+    except (InvalidToken, TokenError):
+        pass
+
+    token = request.GET.get('token')
+    if token:
+        try:
+            validated = jwt_auth.get_validated_token(token)
+            return jwt_auth.get_user(validated)
+        except (InvalidToken, TokenError):
+            pass
+    return None

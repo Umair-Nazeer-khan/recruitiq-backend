@@ -1,7 +1,0 @@
-# fairhire/apps/auth_app/apps.py
-from django.apps import AppConfig
-
-class AuthAppConfig(AppConfig):
-    default_auto_field = 'django.db.models.BigAutoField'
-    name  = 'fairhire.apps.auth_app'
-    label = 'auth_app'

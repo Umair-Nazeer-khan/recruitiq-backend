@@ -10,18 +10,11 @@ from decouple import config
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
-SECRET_KEY = config('SECRET_KEY', default='django-insecure-change-this-in-production')
-
-ALLOWED_HOSTS = [
-    host.strip()
-    for host in config(
-        'ALLOWED_HOSTS',
-        default='localhost,127.0.0.1',
-    ).split(',')
-    if host.strip()
-]
-if 'recruitiq-backend-production-d702.up.railway.app' not in ALLOWED_HOSTS:
-    ALLOWED_HOSTS.append('recruitiq-backend-production-d702.up.railway.app')
+SECRET_KEY = config('SECRET_KEY', default='')
+if not SECRET_KEY:
+    import warnings
+    warnings.warn('SECRET_KEY is not set in the environment.')
+    SECRET_KEY = 'INSECURE-PLACEHOLDER-SET-A-REAL-SECRET-KEY'
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -112,7 +105,12 @@ SIMPLE_JWT = {
 }
 
 # ── CORS (allow Flutter app to connect) ──────
-CORS_ALLOW_ALL_ORIGINS = True   # Set to False in production and list your domains
+CORS_ALLOW_ALL_ORIGINS = config('CORS_ALLOW_ALL_ORIGINS', default=False, cast=bool)
+CORS_ALLOWED_ORIGINS = config(
+    'CORS_ALLOWED_ORIGINS',
+    default='http://localhost:3000,http://127.0.0.1:3000',
+    cast=lambda value: [origin.strip() for origin in value.split(',') if origin.strip()],
+)
 
 # ── Internationalization ──────────────────────
 LANGUAGE_CODE = 'en-us'

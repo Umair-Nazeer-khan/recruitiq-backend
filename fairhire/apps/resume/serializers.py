@@ -22,10 +22,15 @@ class CandidateSerializer(serializers.ModelSerializer):
 
     def get_resume_file_url(self, obj):
         request = self.context.get('request')
-        if obj.resume_file and hasattr(obj.resume_file, 'url'):
-            url = obj.resume_file.url
-            return request.build_absolute_uri(url) if request else url
-        return None
+        if not obj.resume_file:
+            return None
+        path = f'/api/v1/resumes/{obj.id}/download/'
+        url = request.build_absolute_uri(path) if request else path
+        if request is not None:
+            auth_header = request.META.get('HTTP_AUTHORIZATION', '')
+            if auth_header.startswith('Bearer '):
+                url = f'{url}?token={auth_header.split(" ", 1)[1]}'
+        return url
 
 
 class CandidateListSerializer(serializers.ModelSerializer):

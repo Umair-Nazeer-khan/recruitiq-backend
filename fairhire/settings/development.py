@@ -9,9 +9,11 @@ import dj_database_url
 
 DEBUG = config('DEBUG', default=False, cast=bool)
 
-ALLOWED_HOSTS = [
-    '*',
-]
+ALLOWED_HOSTS = config(
+    'ALLOWED_HOSTS',
+    default='recruitiq-backend-production-d702.up.railway.app,localhost,127.0.0.1',
+    cast=lambda value: [host.strip() for host in value.split(',') if host.strip()],
+)
 
 DATABASE_URL = config('DATABASE_URL', default='', cast=str)
 if DATABASE_URL:

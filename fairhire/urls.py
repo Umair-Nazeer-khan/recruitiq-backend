@@ -7,7 +7,6 @@
 from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
-from django.conf.urls.static import static
 from django.http import HttpResponse
 
 
@@ -27,8 +26,6 @@ urlpatterns = [
     path('api/v1/matching/', include('fairhire.apps.matching.urls')),
 ]
 
-# Serve media files (uploaded resumes) — needed in production too since
-# this project doesn't use a separate file host/CDN.
-urlpatterns += static(settings.MEDIA_URL,  document_root=settings.MEDIA_ROOT)
 if settings.DEBUG:
+    from django.conf.urls.static import static
     urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)

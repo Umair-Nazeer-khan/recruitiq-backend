@@ -9,6 +9,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.exceptions import TokenError, InvalidToken
 
 from .models import HRUser
 from .serializers import RegisterSerializer, LoginSerializer, UserSerializer
@@ -101,18 +102,16 @@ def logout(request):
     Flutter sends:
         { "refresh": "refresh_token_here" }
     """
-    try:
-        refresh_token = request.data.get('refresh')
-        token = RefreshToken(refresh_token)
-        token.blacklist()
+    refresh_token = request.data.get('refresh')
+    if refresh_token:
+        try:
+            RefreshToken(refresh_token).blacklist()
+        except (TokenError, InvalidToken):
+            pass
 
-        # Clear FCM token so device stops receiving notifications
-        request.user.fcm_token = None
-        request.user.save(update_fields=['fcm_token'])
-
-        return Response({'message': 'Logged out successfully.'})
-    except Exception:
-        return Response({'message': 'Logged out.'})
+    request.user.fcm_token = None
+    request.user.save(update_fields=['fcm_token'])
+    return Response({'message': 'Logged out successfully.'})
 
 
 # ──────────────────────────────────────────────
