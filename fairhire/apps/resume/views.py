@@ -36,21 +36,19 @@ def upload_resume(request):
     Returns:
         { candidate: { id, name, email, skills, ... } }
     """
-    serializer = UploadResumeSerializer(data=request.data)
-    if not serializer.is_valid():
-        return Response({'errors': serializer.errors}, status=400)
-
-    file = serializer.validated_data['file']
-
-    # Save to disk first
-    candidate = Candidate.objects.create(
-        uploaded_by   = request.user,
-        resume_file   = file,
-        original_name = file.name,
-    )
-
-    # Parse with AI
+    candidate = None
     try:
+        serializer = UploadResumeSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({'errors': serializer.errors}, status=400)
+
+        file = serializer.validated_data['file']
+        candidate = Candidate.objects.create(
+            uploaded_by=request.user,
+            resume_file=file,
+            original_name=file.name,
+        )
+
         file_path = candidate.resume_file.path
         raw_text  = extract_text(file_path)
         if not raw_text or len(raw_text.strip()) < 20:
@@ -58,7 +56,7 @@ def upload_resume(request):
                 'Could not read any text from this file. It may be corrupted, empty, '
                 'or a scanned image without selectable text.'
             )
-        parsed    = parse_resume(raw_text)
+        parsed = parse_resume(raw_text)
 
         candidate.name             = parsed.get('name', '')
         candidate.email            = parsed.get('email', '')
@@ -75,14 +73,19 @@ def upload_resume(request):
         candidate.save()
 
         return Response({
-            'message':   'Resume parsed successfully.',
+            'message': 'Resume parsed successfully.',
             'candidate': CandidateSerializer(
                 candidate, context={'request': request}
             ).data,
         }, status=status.HTTP_201_CREATED)
 
     except Exception as e:
-        candidate.delete()
+        print(f'upload_resume failed: {type(e).__name__}: {e}')
+        if candidate is not None:
+            try:
+                candidate.delete()
+            except Exception:
+                pass
         return Response({'error': f'Failed to parse resume: {str(e)}'}, status=500)
 
 
