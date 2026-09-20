@@ -93,6 +93,27 @@ class SkillMatchingTests(SimpleTestCase):
 
 
 class ResumeParsingTests(SimpleTestCase):
+    def test_work_history_keeps_all_bullets_without_leaking_next_company(self):
+        text = '''
+EXPERIENCE
+First Company
+Engineer | 2022 - 2023
+\uf0b7 Built the API
+\uf0b7 Improved response time
+Second Company
+Developer | 2023 - Present
+\uf0b7 Delivered the mobile app
+'''
+
+        parsed = parse_resume_rule_based(text)
+
+        self.assertEqual(parsed['work_history'][0]['bullets'], [
+            'Built the API',
+            'Improved response time',
+        ])
+        self.assertNotIn('Second Company', parsed['work_history'][0]['bullets'])
+        self.assertEqual(parsed['work_history'][1]['bullets'], ['Delivered the mobile app'])
+
     def test_real_cv_structure_is_parsed_cleanly(self):
         text = '''
 MUHAMMAD ALI

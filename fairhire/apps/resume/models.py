@@ -45,6 +45,8 @@ class Candidate(models.Model):
     skills            = models.JSONField(default=list)       # ["Python", "Flutter", ...]
     languages         = models.JSONField(default=list)       # ["English", "Urdu", ...]
     projects          = models.JSONField(default=list)       # [{name, description}, ...]
+    certifications    = models.JSONField(default=list)       # ["AWS Certified...", ...]
+    awards            = models.JSONField(default=list)       # ["Award...", ...]
     work_history      = models.JSONField(default=list)       # [{company, role, duration}, ...]
     raw_text          = models.TextField(blank=True)         # full resume text
 

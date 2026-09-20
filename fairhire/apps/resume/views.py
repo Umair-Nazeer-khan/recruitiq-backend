@@ -68,6 +68,8 @@ def upload_resume(request):
         candidate.skills           = parsed.get('skills', [])
         candidate.languages        = parsed.get('languages', [])
         candidate.projects         = parsed.get('projects', [])
+        candidate.certifications   = parsed.get('certifications', [])
+        candidate.awards           = parsed.get('awards', [])
         candidate.work_history     = parsed.get('work_history', [])
         candidate.raw_text         = parsed.get('raw_text', '')
         candidate.save()

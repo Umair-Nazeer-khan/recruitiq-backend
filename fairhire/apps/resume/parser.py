@@ -67,6 +67,8 @@ SECTION_HEADERS = {
                     'key skills', 'soft skills'],
     'projects':   ['key projects', 'projects', 'personal projects', 'academic projects'],
     'languages':  ['languages', 'language proficiency', 'language skills'],
+    'certifications': ['certifications', 'certificates', 'licenses'],
+    'awards':     ['awards', 'honors', 'honours', 'achievements'],
     'summary':    ['professional summary', 'summary', 'objective'],
 }
 
@@ -202,6 +204,8 @@ def parse_resume_rule_based(text: str) -> dict:
 
     languages_text  = sections['languages'] or ''
     projects_text   = sections['projects'] or ''
+    certifications_text = sections['certifications'] or ''
+    awards_text     = sections['awards'] or ''
 
     return {
         'name':             _extract_name(text),
@@ -210,6 +214,8 @@ def parse_resume_rule_based(text: str) -> dict:
         'skills':           _extract_skills(skills_text),
         'languages':        _extract_languages(languages_text),
         'projects':         _extract_projects(projects_text),
+        'certifications':   _extract_list_section(certifications_text),
+        'awards':           _extract_list_section(awards_text),
         'experience_years': _extract_experience_years(experience_text.lower()),
         'education':        _extract_education(text, education_text),
         'education_level':  _extract_education_level(text_lower),
@@ -413,21 +419,39 @@ def _extract_projects(projects_text: str) -> list:
     return projects
 
 
+def _extract_list_section(section_text: str) -> list:
+    """Extract one item per line from simple list-style CV sections."""
+    if not section_text:
+        return []
+    items = []
+    for line in section_text.split('\n'):
+        item = re.sub(r'^[•▪●■◦\-\*\uf0b7\uf0a7]\s*', '', line.strip())
+        if item:
+            items.append(item)
+    return items
+
+
 def _extract_work_history(experience_text: str) -> list:
-    """Extract company, role, and duration entries from experience only."""
+    """Extract every job and its bullet points from the experience section."""
     jobs = []
-    lines = [line.strip() for line in experience_text.split('\n') if line.strip()]
-    for i, line in enumerate(lines):
+    lines = [line.strip() for line in experience_text.split('\n')]
+    job_line_indices = [
+        i for i, line in enumerate(lines)
+        if line and _DATE_RANGE.search(line.lower())
+    ]
+
+    bullet_prefix = re.compile(r'^[•▪●■◦\-\*\uf0b7\uf0a7]\s*')
+
+    for job_index, line_index in enumerate(job_line_indices):
+        line = lines[line_index]
         date_match = _DATE_RANGE.search(line.lower())
-        if not date_match:
-            continue
 
         before_date = line[:date_match.start()].strip(' |-–—').strip()
         company = ''
         role = 'Role not specified'
 
         prev_role = ''
-        for j in range(i - 1, max(-1, i - 5), -1):
+        for j in range(line_index - 1, max(-1, line_index - 5), -1):
             prev = lines[j].strip()
             if prev and not _DATE_RANGE.search(prev.lower()):
                 prev_role = prev
@@ -440,7 +464,7 @@ def _extract_work_history(experience_text: str) -> list:
                 role = prev_role
         elif before_date:
             role = before_date
-            for j in range(i - 1, max(-1, i - 5), -1):
+            for j in range(line_index - 1, max(-1, line_index - 5), -1):
                 candidate_line = lines[j] if j >= 0 else ''
                 if candidate_line and not _DATE_RANGE.search(candidate_line.lower()):
                     company = candidate_line
@@ -448,19 +472,35 @@ def _extract_work_history(experience_text: str) -> list:
         else:
             if prev_role:
                 role = prev_role
-            for j in range(i - 2, max(-1, i - 6), -1):
+            for j in range(line_index - 2, max(-1, line_index - 6), -1):
                 candidate_line = lines[j] if j >= 0 else ''
                 if candidate_line and not _DATE_RANGE.search(candidate_line.lower()) and candidate_line.lower() != role.lower():
                     company = candidate_line
                     break
 
+        next_job_index = (
+            job_line_indices[job_index + 1]
+            if job_index + 1 < len(job_line_indices)
+            else len(lines)
+        )
+        bullet_end = next_job_index
+        if job_index + 1 < len(job_line_indices):
+            # The line immediately before the next date is normally its company.
+            bullet_end -= 1
+
+        bullets = []
+        for bullet_line in lines[line_index + 1:bullet_end]:
+            cleaned = bullet_prefix.sub('', bullet_line.strip())
+            if cleaned and not _DATE_RANGE.search(cleaned.lower()):
+                bullets.append(cleaned)
+
         jobs.append({
             'company': company or 'Company not specified',
             'role': role,
             'duration': date_match.group(0).title(),
+            'bullets': bullets,
         })
-        if len(jobs) >= 8:
-            break
+
     return jobs
 
 
