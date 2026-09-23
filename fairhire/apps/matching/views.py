@@ -6,6 +6,7 @@ from rest_framework.response import Response
 from fairhire.apps.resume.models import Candidate
 from fairhire.apps.jobs.models import Job
 from .engine import rank_candidates, score_candidate
+from .serializers import MatchRequestSerializer
 
 
 @api_view(['POST'])
@@ -32,7 +33,10 @@ def match_candidates(request):
 
     Returns ranked list of all candidates with scores.
     """
-    data = request.data
+    serializer = MatchRequestSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response({'errors': serializer.errors}, status=400)
+    data = serializer.validated_data
 
     # Get all candidates for this HR user
     candidates = Candidate.objects.filter(uploaded_by=request.user)
@@ -49,6 +53,8 @@ def match_candidates(request):
     if job_id:
         try:
             job = Job.objects.get(pk=job_id, created_by=request.user)
+            if not job.is_active:
+                return Response({'error': 'This job is inactive.'}, status=400)
             ranked = rank_candidates(list(candidates), job)
         except Job.DoesNotExist:
             return Response({'error': 'Job not found.'}, status=404)

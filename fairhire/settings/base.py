@@ -7,14 +7,15 @@ import os
 from pathlib import Path
 from datetime import timedelta
 from decouple import config
+from django.core.exceptions import ImproperlyConfigured
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 SECRET_KEY = config('SECRET_KEY', default='')
 if not SECRET_KEY:
-    import warnings
-    warnings.warn('SECRET_KEY is not set in the environment.')
-    SECRET_KEY = 'INSECURE-PLACEHOLDER-SET-A-REAL-SECRET-KEY'
+    raise ImproperlyConfigured('SECRET_KEY must be set in the environment.')
+if len(SECRET_KEY) < 50:
+    raise ImproperlyConfigured('SECRET_KEY must contain at least 50 characters.')
 
 INSTALLED_APPS = [
     'django.contrib.admin',

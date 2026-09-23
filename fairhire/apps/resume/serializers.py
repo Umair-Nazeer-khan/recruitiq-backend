@@ -25,12 +25,7 @@ class CandidateSerializer(serializers.ModelSerializer):
         if not obj.resume_file:
             return None
         path = f'/api/v1/resumes/{obj.id}/download/'
-        url = request.build_absolute_uri(path) if request else path
-        if request is not None:
-            auth_header = request.META.get('HTTP_AUTHORIZATION', '')
-            if auth_header.startswith('Bearer '):
-                url = f'{url}?token={auth_header.split(" ", 1)[1]}'
-        return url
+        return request.build_absolute_uri(path) if request else path
 
 
 class CandidateListSerializer(serializers.ModelSerializer):
@@ -48,7 +43,7 @@ class UploadResumeSerializer(serializers.Serializer):
     file = serializers.FileField()
 
     def validate_file(self, value):
-        allowed = ['.pdf', '.docx', '.doc', '.txt']
+        allowed = ['.pdf', '.docx', '.txt']
         import os
 
         name = (value.name or '').strip().strip('"').strip("'")
@@ -65,7 +60,7 @@ class UploadResumeSerializer(serializers.Serializer):
                 ext = detected_ext
             else:
                 raise serializers.ValidationError(
-                    f'[v2-content-check] File type not supported. Use: {", ".join(allowed)}')
+                    f'File type not supported. Use: {", ".join(allowed)}')
 
         if value.size > 10 * 1024 * 1024:
             raise serializers.ValidationError('File too large. Max size: 10 MB')
@@ -87,9 +82,6 @@ class UploadResumeSerializer(serializers.Serializer):
         if header.startswith(b'PK\x03\x04'):
             # DOCX (and modern .doc saved as OOXML) are zip-based
             return '.docx'
-        if header.startswith(b'\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1'):
-            # Legacy .doc (OLE compound file)
-            return '.doc'
         # Plain text has no reliable signature — accept if it decodes as text
         try:
             header.decode('utf-8')

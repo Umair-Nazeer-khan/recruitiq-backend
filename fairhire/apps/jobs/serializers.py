@@ -15,9 +15,10 @@ class JobSerializer(serializers.ModelSerializer):
         ]
 
     def validate(self, data):
-        sw = data.get('skill_weight',      0.5)
-        ew = data.get('experience_weight', 0.3)
-        dw = data.get('education_weight',  0.2)
+        existing = self.instance
+        sw = data.get('skill_weight', existing.skill_weight if existing else 0.5)
+        ew = data.get('experience_weight', existing.experience_weight if existing else 0.3)
+        dw = data.get('education_weight', existing.education_weight if existing else 0.2)
 
         for name, value in [('skill_weight', sw), ('experience_weight', ew),
                             ('education_weight', dw)]:
@@ -30,12 +31,15 @@ class JobSerializer(serializers.ModelSerializer):
                 f'Skill + Experience + Education weights must sum to 1.0 (got {total})'
             )
 
-        min_exp = data.get('min_experience', 0)
+        min_exp = data.get(
+            'min_experience',
+            existing.min_experience if existing else 0,
+        )
         if min_exp is not None and min_exp < 0:
             raise serializers.ValidationError('min_experience cannot be negative.')
 
-        salary_min = data.get('salary_min')
-        salary_max = data.get('salary_max')
+        salary_min = data.get('salary_min', existing.salary_min if existing else None)
+        salary_max = data.get('salary_max', existing.salary_max if existing else None)
         if salary_min is not None and salary_min < 0:
             raise serializers.ValidationError('salary_min cannot be negative.')
         if salary_max is not None and salary_max < 0:

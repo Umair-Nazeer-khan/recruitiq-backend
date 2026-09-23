@@ -9,8 +9,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.response import Response
 from django.http import FileResponse, Http404
-from rest_framework_simplejwt.authentication import JWTAuthentication
-from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
+import logging
 
 from .models import Candidate
 from .serializers import (
@@ -18,6 +17,8 @@ from .serializers import (
     UploadResumeSerializer, UpdateStatusSerializer
 )
 from .parser import extract_text, parse_resume
+
+logger = logging.getLogger(__name__)
 
 
 # ──────────────────────────────────────────────
@@ -82,13 +83,18 @@ def upload_resume(request):
         }, status=status.HTTP_201_CREATED)
 
     except Exception as e:
-        print(f'upload_resume failed: {type(e).__name__}: {e}')
+        logger.exception('Resume upload failed for user %s', request.user.pk)
         if candidate is not None:
             try:
+                if candidate.resume_file:
+                    candidate.resume_file.delete(save=False)
                 candidate.delete()
             except Exception:
-                pass
-        return Response({'error': f'Failed to parse resume: {str(e)}'}, status=500)
+                logger.exception('Failed to clean up resume upload for user %s', request.user.pk)
+        return Response(
+            {'error': 'Failed to parse resume. Please upload a valid PDF, DOCX, or TXT file.'},
+            status=500,
+        )
 
 
 # ──────────────────────────────────────────────
@@ -192,14 +198,10 @@ def dashboard_stats(request):
 
 
 @api_view(['GET'])
-@permission_classes([])
+@permission_classes([IsAuthenticated])
 def download_resume(request, pk):
-    user = _authenticate_via_header_or_query(request)
-    if user is None:
-        return Response({'detail': 'Authentication required.'}, status=401)
-
     try:
-        candidate = Candidate.objects.get(pk=pk, uploaded_by=user)
+        candidate = Candidate.objects.get(pk=pk, uploaded_by=request.user)
     except Candidate.DoesNotExist:
         raise Http404('Resume not found.')
 
@@ -211,22 +213,3 @@ def download_resume(request, pk):
         as_attachment=True,
         filename=candidate.original_name or 'resume',
     )
-
-
-def _authenticate_via_header_or_query(request):
-    jwt_auth = JWTAuthentication()
-    try:
-        result = jwt_auth.authenticate(request)
-        if result is not None:
-            return result[0]
-    except (InvalidToken, TokenError):
-        pass
-
-    token = request.GET.get('token')
-    if token:
-        try:
-            validated = jwt_auth.get_validated_token(token)
-            return jwt_auth.get_user(validated)
-        except (InvalidToken, TokenError):
-            pass
-    return None

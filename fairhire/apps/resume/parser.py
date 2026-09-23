@@ -81,12 +81,12 @@ def extract_text(file_path: str) -> str:
     path = Path(file_path)
     ext  = path.suffix.lower()
 
-    if ext not in ('.pdf', '.docx', '.doc', '.txt'):
+    if ext not in ('.pdf', '.docx', '.txt'):
         ext = _detect_extension_from_content(file_path) or ext
 
     if ext == '.pdf':
         return _text_from_pdf(file_path)
-    elif ext in ('.docx', '.doc'):
+    elif ext == '.docx':
         return _text_from_docx(file_path)
     elif ext == '.txt':
         return path.read_text(encoding='utf-8', errors='ignore')
@@ -108,8 +108,6 @@ def _detect_extension_from_content(file_path: str):
         return '.pdf'
     if header.startswith(b'PK\x03\x04'):
         return '.docx'
-    if header.startswith(b'\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1'):
-        return '.doc'
     try:
         header.decode('utf-8')
         return '.txt'
