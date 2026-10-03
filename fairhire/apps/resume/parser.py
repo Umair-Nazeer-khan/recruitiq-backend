@@ -583,7 +583,7 @@ def _parse_with_gemini(text: str):
     try:
         import google.generativeai as genai
         genai.configure(api_key=GEMINI_API_KEY)
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = genai.GenerativeModel('gemini-3.6-flash')
         response = model.generate_content(
             _EXTRACTION_PROMPT.format(resume_text=text[:8000]),
             generation_config={'response_mime_type': 'application/json'},

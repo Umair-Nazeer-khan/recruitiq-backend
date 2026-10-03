@@ -1,142 +1,201 @@
-# fairhire/apps/matching/views.py
+from django.db import transaction
+from django.shortcuts import get_object_or_404
+from django.utils import timezone
+from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from fairhire.apps.resume.models import Candidate
 from fairhire.apps.jobs.models import Job
-from .engine import rank_candidates, score_candidate
-from .serializers import MatchRequestSerializer
+from fairhire.apps.resume.models import Candidate
+from .engine import rank_candidates
+from .models import CandidateEvaluation
+from .serializers import EvaluationDecisionSerializer, MatchRequestSerializer
 
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def match_candidates(request):
-    """
-    Run AI matching — score all candidates against a job.
-
-    Flutter Job Requirements screen calls this after
-    the HR manager fills in the job form.
-
-    Flutter sends:
-    {
-        "job_id": 1,              ← optional, if job already saved
-        "title": "Flutter Dev",
-        "required_skills": ["Flutter", "Dart"],
-        "optional_skills": ["Python"],
-        "min_experience": 2,
-        "education_level": "BSc / BE",
-        "skill_weight": 0.5,
-        "experience_weight": 0.3,
-        "education_weight": 0.2
-    }
-
-    Returns ranked list of all candidates with scores.
-    """
     serializer = MatchRequestSerializer(data=request.data)
     if not serializer.is_valid():
-        return Response({'errors': serializer.errors}, status=400)
+        return Response({'errors': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+
     data = serializer.validated_data
+    job = get_object_or_404(Job, pk=data['job_id'], created_by=request.user)
+    if not job.is_active:
+        return Response({'error': 'This job is inactive.'}, status=status.HTTP_400_BAD_REQUEST)
 
-    # Get all candidates for this HR user
     candidates = Candidate.objects.filter(uploaded_by=request.user)
+    if data.get('candidate_id') is not None:
+        candidates = candidates.filter(pk=data['candidate_id'])
+        if not candidates.exists():
+            return Response({'error': 'Candidate not found.'}, status=status.HTTP_404_NOT_FOUND)
 
-    if not candidates.exists():
+    candidates = list(candidates)
+    if not candidates:
         return Response({
             'message': 'No candidates found. Upload resumes first.',
+            'job_id': job.id,
+            'job_title': job.title,
             'results': [],
-            'stats':   {'total': 0, 'good_match': 0, 'partial': 0, 'no_match': 0},
+            'stats': {'total': 0, 'good_match': 0, 'partial': 0, 'no_match': 0},
         })
 
-    # If job_id provided, load from DB
-    job_id = data.get('job_id')
-    if job_id:
-        try:
-            job = Job.objects.get(pk=job_id, created_by=request.user)
-            if not job.is_active:
-                return Response({'error': 'This job is inactive.'}, status=400)
-            ranked = rank_candidates(list(candidates), job)
-        except Job.DoesNotExist:
-            return Response({'error': 'Job not found.'}, status=404)
-    else:
-        # Use job data directly from request
-        ranked = rank_candidates(list(candidates), data)
+    evaluations = {}
+    for candidate in candidates:
+        evaluation, _ = CandidateEvaluation.objects.get_or_create(
+            candidate=candidate,
+            job=job,
+            defaults={'evaluation_status': 'processing'},
+        )
+        evaluation.evaluation_status = 'processing'
+        evaluation.decision_status = 'new'
+        evaluation.save(update_fields=['evaluation_status', 'decision_status', 'updated_at'])
+        evaluations[candidate.id] = evaluation
 
-    # Save scores back to each candidate in DB
-    for result in ranked:
-        try:
-            candidate = Candidate.objects.get(pk=result['candidate_id'])
-            candidate.match_score       = result['final_score']
-            candidate.skill_score       = result['skill_score']
-            candidate.experience_score  = result['experience_score']
-            candidate.education_score   = result['education_score']
-            candidate.missing_skills    = result['missing_skills']
-            candidate.score_explanation = result['explanation']
-            candidate.save(update_fields=[
-                'match_score', 'skill_score', 'experience_score',
-                'education_score', 'missing_skills', 'score_explanation'
-            ])
-        except Candidate.DoesNotExist:
-            pass
+    try:
+        ranked = rank_candidates(candidates, job)
+    except Exception:
+        CandidateEvaluation.objects.filter(pk__in=[e.pk for e in evaluations.values()]).update(
+            evaluation_status='failed',
+            updated_at=timezone.now(),
+        )
+        return Response(
+            {'error': 'Candidate evaluation failed. Please retry.'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
 
-    # Calculate summary stats
-    good_match = len([r for r in ranked if r['final_score'] >= 80])
-    partial    = len([r for r in ranked if 60 <= r['final_score'] < 80])
-    no_match   = len([r for r in ranked if r['final_score'] < 60])
+    results = []
+    with transaction.atomic():
+        for result in ranked:
+            evaluation = evaluations[result['candidate_id']]
+            evaluation.evaluation_status = 'evaluated'
+            evaluation.match_score = result['final_score']
+            evaluation.skill_score = result['skill_score']
+            evaluation.experience_score = result['experience_score']
+            evaluation.education_score = result['education_score']
+            evaluation.matched_skills = result['matched_skills']
+            evaluation.missing_skills = result['missing_skills']
+            evaluation.explanation = result['explanation']
+            evaluation.evaluated_at = timezone.now()
+            evaluation.save()
+
+            result.update({
+                'evaluation_id': evaluation.id,
+                'evaluation_status': evaluation.evaluation_status,
+                'decision_status': evaluation.decision_status,
+                'job_id': job.id,
+                'job_title': job.title,
+            })
+            candidate = next(item for item in candidates if item.id == result['candidate_id'])
+            result['original_name'] = candidate.original_name
+            result['education'] = candidate.education
+            results.append(result)
+
+    good_match = sum(1 for result in results if result['final_score'] >= 80)
+    partial_match = sum(1 for result in results if 60 <= result['final_score'] < 80)
+    no_match = sum(1 for result in results if result['final_score'] < 60)
 
     return Response({
-        'message': f'Matched {len(ranked)} candidates.',
+        'message': f'Evaluated {len(results)} candidate(s) for {job.title}.',
+        'job_id': job.id,
+        'job_title': job.title,
         'stats': {
-            'total':      len(ranked),
+            'total': len(results),
             'good_match': good_match,
-            'partial':    partial,
-            'no_match':   no_match,
+            'partial': partial_match,
+            'no_match': no_match,
         },
-        'results': ranked,
+        'results': results,
     })
 
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def match_results(request):
-    """
-    Get previously matched candidates sorted by score.
+    job_id = request.query_params.get('job_id')
+    if not job_id:
+        return Response({'error': 'job_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
 
-    Flutter Match Results screen uses this to reload results.
-    Optional: ?min_score=60  to filter by minimum score
-    """
-    qs = Candidate.objects.filter(
-        uploaded_by=request.user,
-        match_score__isnull=False
-    ).order_by('-match_score')
+    job = get_object_or_404(Job, pk=job_id, created_by=request.user)
+    evaluations = CandidateEvaluation.objects.filter(
+        job=job,
+        evaluation_status='evaluated',
+    ).select_related('candidate')
 
-    # Optional score filter
     min_score = request.query_params.get('min_score')
     if min_score:
         try:
-            qs = qs.filter(match_score__gte=float(min_score))
+            evaluations = evaluations.filter(match_score__gte=float(min_score))
         except ValueError:
-            pass
+            return Response({'error': 'min_score must be numeric.'}, status=status.HTTP_400_BAD_REQUEST)
 
-    results = []
-    for c in qs:
-        results.append({
-            'candidate_id':     c.id,
-            'candidate_name':   c.name,
-            'email':            c.email,
-            'experience_years': c.experience_years,
-            'education_level':  c.education_level,
-            'skills':           c.skills,
-            'final_score':      c.match_score,
-            'skill_score':      c.skill_score,
-            'experience_score': c.experience_score,
-            'education_score':  c.education_score,
-            'missing_skills':   c.missing_skills,
-            'explanation':      c.score_explanation,
-            'status':           c.status,
-        })
+    results = [{
+        'evaluation_id': evaluation.id,
+        'evaluation_status': evaluation.evaluation_status,
+        'decision_status': evaluation.decision_status,
+        'job_id': job.id,
+        'job_title': job.title,
+        'candidate_id': evaluation.candidate_id,
+        'candidate_name': evaluation.candidate.name or evaluation.candidate.original_name,
+        'original_name': evaluation.candidate.original_name,
+        'email': evaluation.candidate.email,
+        'phone': evaluation.candidate.phone,
+        'location': evaluation.candidate.location,
+        'education': evaluation.candidate.education,
+        'experience_years': evaluation.candidate.experience_years,
+        'education_level': evaluation.candidate.education_level,
+        'skills': evaluation.candidate.skills,
+        'final_score': evaluation.match_score,
+        'skill_score': evaluation.skill_score,
+        'experience_score': evaluation.experience_score,
+        'education_score': evaluation.education_score,
+        'matched_skills': evaluation.matched_skills,
+        'missing_skills': evaluation.missing_skills,
+        'explanation': evaluation.explanation,
+        'status': evaluation.candidate.status,
+    } for evaluation in evaluations.order_by('-match_score')]
+
+    good_match = sum(1 for result in results if result['final_score'] >= 80)
+    partial_match = sum(1 for result in results if 60 <= result['final_score'] < 80)
+    no_match = sum(1 for result in results if result['final_score'] < 60)
 
     return Response({
-        'count':   len(results),
+        'job_id': job.id,
+        'job_title': job.title,
+        'count': len(results),
+        'stats': {
+            'total': len(results),
+            'good_match': good_match,
+            'partial': partial_match,
+            'no_match': no_match,
+        },
         'results': results,
+    })
+
+
+@api_view(['PATCH'])
+@permission_classes([IsAuthenticated])
+def update_evaluation_decision(request, evaluation_id):
+    evaluation = get_object_or_404(
+        CandidateEvaluation.objects.select_related('job'),
+        pk=evaluation_id,
+        job__created_by=request.user,
+    )
+    if evaluation.evaluation_status != 'evaluated':
+        return Response(
+            {'error': 'Complete the job evaluation before making a decision.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    serializer = EvaluationDecisionSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response({'errors': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+
+    evaluation.decision_status = serializer.validated_data['decision_status']
+    evaluation.save(update_fields=['decision_status', 'updated_at'])
+    return Response({
+        'evaluation_id': evaluation.id,
+        'job_id': evaluation.job_id,
+        'decision_status': evaluation.decision_status,
     })

@@ -1,8 +1,12 @@
 from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 from django.test import SimpleTestCase
+from rest_framework.test import APIRequestFactory, force_authenticate
 
 from .engine import _normalize_weights, get_edu_rank, score_candidate
+from .serializers import MatchRequestSerializer
+from .views import update_evaluation_decision
 from fairhire.apps.resume.parser import parse_resume_rule_based
 
 
@@ -91,6 +95,25 @@ class SkillMatchingTests(SimpleTestCase):
         })
         self.assertIn('java', [skill.lower() for skill in result['missing_skills']])
 
+    def test_saved_job_description_contributes_to_match_score(self):
+        candidate = _fake_candidate(
+            skills=[],
+            raw_text='Kubernetes deployment and container orchestration experience',
+        )
+        common = {
+            'required_skills': [],
+            'optional_skills': [],
+            'min_experience': 0,
+            'education_level': '',
+            'skill_weight': 1.0,
+            'experience_weight': 0.0,
+            'education_weight': 0.0,
+        }
+        matching = score_candidate(candidate, {**common, 'description': 'Kubernetes deployment'})
+        unrelated = score_candidate(candidate, {**common, 'description': 'Graphic design portfolio'})
+
+        self.assertGreater(matching['skill_score'], unrelated['skill_score'])
+
 
 class ResumeParsingTests(SimpleTestCase):
     def test_work_history_keeps_all_bullets_without_leaking_next_company(self):
@@ -140,3 +163,53 @@ ABC Tech | Lahore | 2022 - Present
         self.assertEqual(parsed['experience_years'], 3.0)
         self.assertEqual(parsed['work_history'][0]['company'], 'ABC Tech')
         self.assertEqual(parsed['work_history'][0]['role'], 'Software Engineer')
+
+
+class JobScopedEvaluationTests(SimpleTestCase):
+    def test_match_request_requires_saved_job_id(self):
+        serializer = MatchRequestSerializer(data={'required_skills': ['Python']})
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn('job_id', serializer.errors)
+
+    def test_decision_is_blocked_until_evaluation_completes(self):
+        evaluation = SimpleNamespace(evaluation_status='processing', save=Mock())
+        request = APIRequestFactory().patch(
+            '/api/v1/matching/evaluations/5/decision/',
+            {'decision_status': 'accepted'},
+            format='json',
+        )
+        force_authenticate(request, user=SimpleNamespace(is_authenticated=True))
+        with patch(
+            'fairhire.apps.matching.views.get_object_or_404',
+            return_value=evaluation,
+        ):
+            response = update_evaluation_decision(request, evaluation_id=5)
+
+        self.assertEqual(response.status_code, 400)
+        evaluation.save.assert_not_called()
+
+    def test_decision_is_saved_for_completed_evaluation(self):
+        evaluation = SimpleNamespace(
+            id=5,
+            evaluation_status='evaluated',
+            decision_status='new',
+            job_id=3,
+            job=SimpleNamespace(id=3),
+            save=Mock(),
+        )
+        request = APIRequestFactory().patch(
+            '/api/v1/matching/evaluations/5/decision/',
+            {'decision_status': 'accepted'},
+            format='json',
+        )
+        force_authenticate(request, user=SimpleNamespace(is_authenticated=True))
+        with patch(
+            'fairhire.apps.matching.views.get_object_or_404',
+            return_value=evaluation,
+        ):
+            response = update_evaluation_decision(request, evaluation_id=5)
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(evaluation.decision_status, 'accepted')
+        evaluation.save.assert_called_once_with(update_fields=['decision_status', 'updated_at'])

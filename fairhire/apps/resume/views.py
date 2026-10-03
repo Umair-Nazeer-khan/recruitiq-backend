@@ -163,7 +163,8 @@ def update_status(request, pk):
 
     serializer = UpdateStatusSerializer(data=request.data)
     if serializer.is_valid():
-        candidate.status   = serializer.validated_data['status']
+        new_status = serializer.validated_data['status']
+        candidate.status   = new_status
         candidate.hr_notes = serializer.validated_data.get('hr_notes', candidate.hr_notes)
         candidate.save(update_fields=['status', 'hr_notes'])
         return Response({
@@ -186,14 +187,20 @@ def dashboard_stats(request):
     Returns:
         { total_cvs, shortlisted, accepted, rejected, pending }
     """
+    from fairhire.apps.matching.models import CandidateEvaluation
+
     qs = Candidate.objects.filter(uploaded_by=request.user)
+    evaluations = CandidateEvaluation.objects.filter(
+        job__created_by=request.user,
+        evaluation_status='evaluated',
+    )
     return Response({
         'total_cvs':   qs.count(),
         'shortlisted': qs.filter(status='shortlisted').count(),
-        'accepted':    qs.filter(status='accepted').count(),
-        'rejected':    qs.filter(status='rejected').count(),
+        'accepted':    evaluations.filter(decision_status='accepted').count(),
+        'rejected':    evaluations.filter(decision_status='rejected').count(),
         'pending':     qs.filter(status='pending').count(),
-        'on_hold':     qs.filter(status='on_hold').count(),
+        'on_hold':     evaluations.filter(decision_status='on_hold').count(),
     })
 
 

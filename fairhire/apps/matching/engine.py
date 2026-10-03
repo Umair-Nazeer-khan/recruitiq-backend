@@ -140,7 +140,12 @@ def score_candidate(candidate, job) -> dict:
         skill_weight = float(job.get('skill_weight', 0.5) or 0.5)
         experience_weight = float(job.get('experience_weight', 0.3) or 0.3)
         education_weight = float(job.get('education_weight', 0.2) or 0.2)
-        job_description = ' '.join(required_skills + optional_skills)
+        job_description = ' '.join([
+            str(job.get('title', '') or ''),
+            str(job.get('description', '') or ''),
+            *required_skills,
+            *optional_skills,
+        ])
     else:
         required_skills = [str(s).strip() for s in (job.required_skills or [])]
         optional_skills = [str(s).strip() for s in (job.optional_skills or [])]
@@ -149,7 +154,12 @@ def score_candidate(candidate, job) -> dict:
         skill_weight = float(job.skill_weight or 0.5)
         experience_weight = float(job.experience_weight or 0.3)
         education_weight = float(job.education_weight or 0.2)
-        job_description = ' '.join(required_skills + optional_skills)
+        job_description = ' '.join([
+            str(getattr(job, 'title', '') or ''),
+            str(getattr(job, 'description', '') or ''),
+            *required_skills,
+            *optional_skills,
+        ])
 
     skill_weight, experience_weight, education_weight = _normalize_weights(
         skill_weight, experience_weight, education_weight

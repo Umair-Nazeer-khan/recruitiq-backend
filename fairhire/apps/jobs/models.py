@@ -27,6 +27,7 @@ class Job(models.Model):
 
     created_by        = models.ForeignKey(HRUser, on_delete=models.CASCADE, related_name='jobs')
     title             = models.CharField(max_length=200)
+    description       = models.TextField(blank=True)
     department        = models.CharField(max_length=100, blank=True)
     location          = models.CharField(max_length=100, blank=True)
     job_type          = models.CharField(max_length=20, choices=JOB_TYPE_CHOICES, default='full_time')

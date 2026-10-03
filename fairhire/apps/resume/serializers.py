@@ -13,9 +13,7 @@ class CandidateSerializer(serializers.ModelSerializer):
             'id', 'name', 'email', 'phone', 'location',
             'education', 'education_level', 'experience_years',
             'skills', 'languages', 'projects', 'certifications', 'awards', 'work_history',
-            'match_score', 'skill_score',
-            'experience_score', 'education_score', 'missing_skills',
-            'score_explanation', 'status', 'hr_notes',
+            'status', 'hr_notes',
             'original_name', 'created_at',
             'resume_file_url',
         ]
@@ -33,8 +31,9 @@ class CandidateListSerializer(serializers.ModelSerializer):
     class Meta:
         model  = Candidate
         fields = [
-            'id', 'name', 'email', 'experience_years', 'education_level',
-            'skills', 'match_score', 'status', 'created_at',
+            'id', 'name', 'email', 'phone', 'location', 'education',
+            'experience_years', 'education_level', 'skills',
+            'status', 'created_at', 'original_name',
         ]
 
 
@@ -92,5 +91,5 @@ class UploadResumeSerializer(serializers.Serializer):
 
 class UpdateStatusSerializer(serializers.Serializer):
     """Used to update candidate status."""
-    status   = serializers.ChoiceField(choices=['pending', 'shortlisted', 'accepted', 'rejected', 'on_hold'])
+    status   = serializers.ChoiceField(choices=['pending', 'shortlisted'])
     hr_notes = serializers.CharField(required=False, allow_blank=True)
