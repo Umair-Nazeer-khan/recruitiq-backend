@@ -3,7 +3,7 @@
 ## Base URL
 
 ```text
-https://recruitiq-backend-production-d702.up.railway.app/api/v1
+https://proud-wholeness-production-2929.up.railway.app/api/v1
 ```
 
 Protected endpoints require:

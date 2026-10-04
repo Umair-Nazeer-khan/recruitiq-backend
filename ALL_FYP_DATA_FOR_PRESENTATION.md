@@ -253,7 +253,7 @@ FairHire is designed to make recruitment more efficient, objective, and intellig
 
 ## Base URL
 Production:
-https://recruitiq-backend-production-d702.up.railway.app/api/v1
+https://proud-wholeness-production-2929.up.railway.app/api/v1
 
 Local:
 http://localhost:8000/api/v1

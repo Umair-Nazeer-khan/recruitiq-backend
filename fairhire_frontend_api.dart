@@ -7,7 +7,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 
 class ApiConfig {
-  static const String baseUrl = 'https://recruitiq-backend-production-d702.up.railway.app/api/v1';
+  static const String baseUrl = 'https://proud-wholeness-production-2929.up.railway.app/api/v1';
   // static const String baseUrl = 'http://localhost:8000/api/v1';
   static const String authPath = '/auth';
   static const String resumesPath = '/resumes';
