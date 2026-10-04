@@ -516,17 +516,16 @@ def _extract_location(text: str) -> str:
 
 
 # ════════════════════════════════════════════════════════════════
-#  STEP 4 — Optional: Gemini-based extraction (higher accuracy)
+#  STEP 4 — LLM extraction with provider fallback
 # ════════════════════════════════════════════════════════════════
 #
-#  Set GEMINI_API_KEY in your .env / Railway variables to enable this.
-#  Get a free key at: https://aistudio.google.com/app/apikey
-#  If the key isn't set, or the call fails for any reason, the parser
-#  silently falls back to the rule-based parser above — the app never
-#  breaks because of this.
+#  Gemini is primary, Groq is secondary, and the rule-based parser is the
+#  final fallback. Configure provider keys in .env or Railway variables.
 # ════════════════════════════════════════════════════════════════
 
 GEMINI_API_KEY = config('GEMINI_API_KEY', default='')
+GROQ_API_KEY = config('GROQ_API_KEY', default='')
+GROQ_MODEL = config('GROQ_MODEL', default='openai/gpt-oss-120b')
 
 _EXTRACTION_PROMPT = """You are a resume-parsing engine. Read the resume text
 below and return ONLY a single valid JSON object (no markdown, no commentary)
@@ -577,6 +576,27 @@ def _looks_like_job_title(name: str) -> bool:
     return any(word in lower for word in job_words)
 
 
+def _normalize_llm_data(data: dict, text: str) -> dict:
+    name = (data.get('name') or '').strip()
+    if _looks_like_job_title(name):
+        name = _extract_name(text)
+
+    return {
+        'name':             name,
+        'email':            data.get('email', ''),
+        'phone':            data.get('phone', ''),
+        'skills':           data.get('skills', []) or [],
+        'languages':        data.get('languages', []) or [],
+        'projects':         data.get('projects', []) or [],
+        'experience_years': float(data.get('experience_years', 0) or 0),
+        'education':        data.get('education', ''),
+        'education_level':  data.get('education_level', ''),
+        'work_history':     data.get('work_history', []) or [],
+        'location':         data.get('location', ''),
+        'raw_text':         text,
+    }
+
+
 def _parse_with_gemini(text: str):
     if not GEMINI_API_KEY:
         return None
@@ -589,27 +609,40 @@ def _parse_with_gemini(text: str):
             generation_config={'response_mime_type': 'application/json'},
         )
         data = json.loads(response.text)
-
-        gemini_name = (data.get('name') or '').strip()
-        if _looks_like_job_title(gemini_name):
-            gemini_name = _extract_name(text)
-
-        return {
-            'name':             gemini_name,
-            'email':            data.get('email', ''),
-            'phone':            data.get('phone', ''),
-            'skills':           data.get('skills', []) or [],
-            'languages':        data.get('languages', []) or [],
-            'projects':         data.get('projects', []) or [],
-            'experience_years': float(data.get('experience_years', 0) or 0),
-            'education':        data.get('education', ''),
-            'education_level':  data.get('education_level', ''),
-            'work_history':     data.get('work_history', []) or [],
-            'location':         data.get('location', ''),
-            'raw_text':         text,
-        }
+        return _normalize_llm_data(data, text)
     except Exception as e:
         print(f'Gemini parsing failed, falling back to rule-based parser: {e}')
+        return None
+
+
+def _parse_with_groq(text: str):
+    if not GROQ_API_KEY:
+        return None
+    try:
+        import requests
+
+        response = requests.post(
+            'https://api.groq.com/openai/v1/chat/completions',
+            headers={'Authorization': f'Bearer {GROQ_API_KEY}'},
+            json={
+                'model': GROQ_MODEL,
+                'temperature': 0,
+                'response_format': {'type': 'json_object'},
+                'messages': [
+                    {
+                        'role': 'user',
+                        'content': _EXTRACTION_PROMPT.format(resume_text=text[:8000]),
+                    },
+                ],
+            },
+            timeout=30,
+        )
+        response.raise_for_status()
+        data = response.json()
+        content = data['choices'][0]['message']['content']
+        return _normalize_llm_data(json.loads(content), text)
+    except Exception as e:
+        print(f'Groq parsing failed; using rule-based parser ({type(e).__name__}).')
         return None
 
 
@@ -619,11 +652,15 @@ def _parse_with_gemini(text: str):
 
 def parse_resume(text: str) -> dict:
     """
-    Main parser function. Tries Gemini first (if configured) for higher
-    accuracy, and always falls back to the rule-based parser so resume
-    upload never fails outright.
+    Try Gemini, then Groq, then the rule-based parser so resume uploads
+    continue when either provider is unavailable.
     """
     llm_result = _parse_with_gemini(text)
     if llm_result is not None:
         return llm_result
+
+    llm_result = _parse_with_groq(text)
+    if llm_result is not None:
+        return llm_result
+
     return parse_resume_rule_based(text)
