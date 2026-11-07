@@ -7,3 +7,5 @@ media/
 staticfiles/
 venv/
 *.log
+.env
+firebase-credentials.json
